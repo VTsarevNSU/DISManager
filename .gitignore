@@ -16,3 +16,11 @@ gradle-app.setting
 .project
 # JDT-specific (Eclipse Java Development Tools)
 .classpath
+
+build.gradle.kts
+gradlew
+gradlew.bat
+HELP.md
+settings.gradle.kts
+.idea
+gradle
