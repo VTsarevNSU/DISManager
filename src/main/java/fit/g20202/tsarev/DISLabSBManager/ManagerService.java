@@ -18,7 +18,7 @@ public class ManagerService {
 
     AtomicInteger lastRequestId;
     LinkedHashMap<Integer, Query> queries;
-    static final int WORKERS_COUNT = 3;
+    static final int WORKERS_COUNT = 1;//todo 3
     static final int ALPHABET_SIZE = 36;
     private final Object mutex = new Object();
 
@@ -41,7 +41,7 @@ public class ManagerService {
 
     }
 
-    public Integer processRequest(StartCrackRequestDTO startCrackRequestDTO){
+    public List<TaskForWorkerDTO> processRequest(StartCrackRequestDTO startCrackRequestDTO){
 
         int requestIdATM = lastRequestId.addAndGet(1);
 
@@ -67,6 +67,8 @@ public class ManagerService {
         int startSymbolPos;
         int endSymbolPos = -1;
 
+        List<TaskForWorkerDTO> tasks = new ArrayList<>();
+
         for (int i = 1; i <= WORKERS_COUNT; i++){
 
             startSymbolPos = endSymbolPos + 1;
@@ -76,24 +78,32 @@ public class ManagerService {
             System.out.println(endSymbolPos);
             System.out.println();
 
-            HttpEntity<TaskForWorkerDTO> request = new HttpEntity<>(new TaskForWorkerDTO(
+            TaskForWorkerDTO newTask = new TaskForWorkerDTO(
                     String.valueOf(requestIdATM), hash, String.valueOf(startSymbolPos), String.valueOf(endSymbolPos), startCrackRequestDTO.maxLength()
-            ));
+            );
+            tasks.add(newTask);
 
-            ResponseEntity<ResponseFromWorkerDTO> response =
+
+            /*HttpEntity<TaskForWorkerDTO> request = new HttpEntity<>(new TaskForWorkerDTO(
+                    String.valueOf(requestIdATM), hash, String.valueOf(startSymbolPos), String.valueOf(endSymbolPos), startCrackRequestDTO.maxLength()
+            ));*/
+
+            /*ResponseEntity<ResponseFromWorkerDTO> response =
                     restTemplate.postForEntity(
                             //"http://localhost:8081/internal/api/worker/hash/crack/task",
                             "http://worker" + i + ":8080/internal/api/worker/hash/crack/task",
                             request,
-                            ResponseFromWorkerDTO.class);
+                            ResponseFromWorkerDTO.class);*/
 
-            if (response.getStatusCode().is2xxSuccessful()){
+
+
+            /*if (response.getStatusCode().is2xxSuccessful()){
                 System.out.println("Worker " + i + " got the task");
-            }
+            }*/
 
         }
 
-        return requestIdATM;
+        return tasks;
     }
 
     ResponseToWorkerDTO saveResult(ResultFromWorkerDTO resultFromWorker){
@@ -106,6 +116,7 @@ public class ManagerService {
 
         query.dueDate = LocalDateTime.now().plusSeconds(60);
         System.out.println(query.dueDate.toString());
+
         return new ResponseToWorkerDTO();
     }
 
