@@ -16,10 +16,10 @@ import java.util.stream.Stream;
 @EnableScheduling
 public class ManagerService {
 
-    AtomicInteger lastRequestId;
-    LinkedHashMap<Integer, Query> queries;
-    static final int WORKERS_COUNT = 3;
-    static final int ALPHABET_SIZE = 36;
+    private final AtomicInteger lastRequestId;
+    private final LinkedHashMap<Integer, Query> queries;
+    public static final int WORKERS_COUNT = 3;
+    public static final int ALPHABET_SIZE = 36;
     private final Object mutex = new Object();
 
     ManagerService(){
@@ -45,7 +45,9 @@ public class ManagerService {
 
         int requestIdATM = lastRequestId.addAndGet(1);
 
-        queries.putLast(requestIdATM, new Query());
+        synchronized (mutex){
+            queries.putLast(requestIdATM, new Query());
+        }
 
         String hash = startCrackRequestDTO.hash();
         String maxLength = startCrackRequestDTO.maxLength();
@@ -98,15 +100,31 @@ public class ManagerService {
 
     ResponseToWorkerDTO saveResult(ResultFromWorkerDTO resultFromWorker){
         Integer requestId = Integer.parseInt(resultFromWorker.requestId());
-        ManagerService.Query query = this.queries.get(requestId);
         // thread-safe addition of new results to already existing ones
         synchronized (mutex) {
+            ManagerService.Query query = this.queries.get(requestId);
             query.result = Stream.concat(query.result.stream(), resultFromWorker.result().stream()).toList();
+            query.dueDate = LocalDateTime.now().plusSeconds(60);
+            System.out.println(query.dueDate.toString());
         }
 
-        query.dueDate = LocalDateTime.now().plusSeconds(60);
-        System.out.println(query.dueDate.toString());
         return new ResponseToWorkerDTO();
+    }
+
+    public ResultResponseToClientDTO createResponseToClient(String requestId) {
+        synchronized (mutex){
+            ManagerService.Query query = queries.get(Integer.parseInt(requestId));
+            if (query == null) {
+                return new ResultResponseToClientDTO("ERROR", null);
+            } else {
+                List<String> result = query.result;
+                if (result.isEmpty()) {
+                    return new ResultResponseToClientDTO("IN_PROGRESS", null);
+                } else {
+                    return new ResultResponseToClientDTO("READY", result);
+                }
+            }
+        }
     }
 
     class Query {

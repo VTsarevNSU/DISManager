@@ -36,17 +36,7 @@ public class ManagerController {
     public ResultResponseToClientDTO getResult(
             @RequestParam(value="requestId", required = true) String requestId
     ){
-        ManagerService.Query query = service.queries.get(Integer.parseInt(requestId));
-        if (query == null) {
-            return new ResultResponseToClientDTO("ERROR", null);
-        } else {
-            List<String> result = query.result;
-            if (result.isEmpty()) {
-                return new ResultResponseToClientDTO("IN_PROGRESS", null);
-            } else {
-                return new ResultResponseToClientDTO("READY", result);
-            }
-        }
+        return service.createResponseToClient(requestId);
     }
 
 }
