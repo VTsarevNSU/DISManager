@@ -43,15 +43,13 @@ public class ManagerController {
     public StartCrackResponseToClientDTO startCrack(
             @RequestBody StartCrackRequestDTO startCrackRequestDTO
     ){
-        // response to client: id of the request
-        /*return new StartCrackResponseToClientDTO(
-                String.valueOf(service.processRequest(startCrackRequestDTO))
-        );*/
 
         List<TaskForWorkerDTO> tasks = service.processRequest(startCrackRequestDTO);
         tasks.forEach(task -> {
             amqpTemplate.convertAndSend("exchange", "workerKey", task);
         });
+
+        // response to client: id of the request
         return new StartCrackResponseToClientDTO(tasks.getFirst().requestId());
     }
 
@@ -79,17 +77,7 @@ public class ManagerController {
     public ResultResponseToClientDTO getResult(
             @RequestParam(value="requestId", required = true) String requestId
     ){
-        ManagerService.Query query = service.queries.get(Integer.parseInt(requestId));
-        if (query == null) {
-            return new ResultResponseToClientDTO("ERROR", null);
-        } else {
-            List<String> result = query.result;
-            if (result.isEmpty()) {
-                return new ResultResponseToClientDTO("IN_PROGRESS", null);
-            } else {
-                return new ResultResponseToClientDTO("READY", result);
-            }
-        }
+        return service.createResponseToClient(requestId);
     }
 
 }
