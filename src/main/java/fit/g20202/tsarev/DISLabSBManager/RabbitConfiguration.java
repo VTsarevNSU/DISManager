@@ -10,12 +10,17 @@ import org.springframework.amqp.rabbit.listener.SimpleMessageListenerContainer;
 import org.springframework.amqp.support.converter.Jackson2JsonMessageConverter;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
 
+@Configuration
 public class RabbitConfiguration {
 
     @Bean
     public ConnectionFactory connectionFactory() {
-        return new CachingConnectionFactory("localhost");
+        CachingConnectionFactory cachingConnectionFactory = new CachingConnectionFactory("rabbitmq");
+        cachingConnectionFactory.setUsername("user");
+        cachingConnectionFactory.setPassword("password");
+        return cachingConnectionFactory;
     }
 
     @Bean
