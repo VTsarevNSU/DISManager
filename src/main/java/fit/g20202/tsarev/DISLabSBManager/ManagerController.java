@@ -1,26 +1,11 @@
 package fit.g20202.tsarev.DISLabSBManager;
 
-import com.rabbitmq.client.Channel;
-import com.rabbitmq.client.Connection;
-import com.rabbitmq.client.ConnectionFactory;
-import com.rabbitmq.client.MessageProperties;
 import fit.g20202.tsarev.DISLabSBManager.DTO.*;
 import org.springframework.amqp.core.AmqpTemplate;
-import org.springframework.amqp.core.Message;
-import org.springframework.amqp.core.Queue;
-import org.springframework.amqp.rabbit.annotation.EnableRabbit;
-import org.springframework.amqp.rabbit.annotation.RabbitHandler;
 import org.springframework.amqp.rabbit.annotation.RabbitListener;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.data.mongodb.core.query.Criteria;
-import org.springframework.data.mongodb.core.query.Query;
 import org.springframework.web.bind.annotation.*;
-
-import java.io.IOException;
 import java.util.List;
-import java.util.concurrent.TimeoutException;
-
-import static java.lang.Thread.sleep;
 
 @RestController
 public class ManagerController {

@@ -58,7 +58,6 @@ public class ManagerService {
         int requestIdATM;
 
         synchronized (mutex) {
-            //Request newRequest = new Request(requestIdATM);
             while (true){
                 requestIdATM = nextRequestId.get();
 

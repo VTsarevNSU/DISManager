@@ -24,9 +24,7 @@ public class MongoConfiguration extends AbstractMongoClientConfiguration {
 
     @Override
     public MongoClient mongoClient() {
-        // mongodb://127.0.0.1:27017,127.0.0.1:27018,127.0.0.1:27019/?replicaSet=rs0
         ConnectionString connectionString = new ConnectionString("mongodb://mongodb1:27017,mongodb2:27018,mongodb3:27019/?replicaSet=rs0");
-        //ConnectionString connectionString = new ConnectionString("mongodb://mongo1/" + databaseName);
         MongoClientSettings mongoClientSettings = MongoClientSettings.builder()
                 .applyConnectionString(connectionString)
                 .build();
