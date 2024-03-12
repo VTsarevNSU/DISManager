@@ -1,0 +1,119 @@
+version: '3'
+services:
+  rabbitmq:
+    image: rabbitmq:3-management
+    environment:
+      RABBITMQ_DEFAULT_USER: user
+      RABBITMQ_DEFAULT_PASS: password
+    healthcheck:
+      test: rabbitmq-diagnostics -q ping
+      interval: 30s
+      timeout: 30s
+      retries: 3
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    networks:
+      - network1
+
+  mongodb1:
+    image: mongo:latest
+    command: ["--replSet", "rs0", "--bind_ip_all", "--port", "27017"]
+    healthcheck:
+      test: echo "try { rs.status() } catch (err) { rs.initiate({_id:'rs0',members:[{_id:0,host:'mongodb1:27017',priority:1},{_id:1,host:'mongodb2:27018',priority:0.5},{_id:2,host:'mongodb3:27019',priority:0.5}]}) }" | mongosh --port 27017 --quiet
+      interval: 5s
+      timeout: 20s
+      retries: 20
+    ports:
+      - 27017:27017
+    volumes:
+      - mongodb1_data:/data/db
+      - mongodb1_config:/data/configdb
+    networks:
+      - network1
+
+  mongodb2:
+    image: mongo:latest
+    command: ["--replSet", "rs0", "--bind_ip_all", "--port", "27018"]
+    ports:
+      - "27018:27018"
+    volumes:
+      - "mongodb2_data:/data/db"
+      - "mongodb2_config:/data/configdb"
+    networks:
+      - network1
+
+  mongodb3:
+    image: mongo:latest
+    command: [ "--replSet", "rs0", "--bind_ip_all", "--port", "27019" ]
+    ports:
+      - "27019:27019"
+    volumes:
+      - "mongodb3_data:/data/db"
+      - "mongodb3_config:/data/configdb"
+    networks:
+      - network1
+
+  manager:
+    environment:
+      - WORKERS_NUM=3
+      - RABBITMQ_HOST=rabbitmq
+    depends_on:
+      mongodb1:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    build: ./DISLabSB/
+    ports:
+      - "8080:8080"
+    networks:
+      - network1
+
+  worker1:
+    environment:
+      - RABBITMQ_HOST=rabbitmq
+    depends_on:
+      mongodb1:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    build: ./DISLabSBWorker/
+    networks:
+      - network1
+
+  worker2:
+    environment:
+      - RABBITMQ_HOST=rabbitmq
+    depends_on:
+      mongodb1:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    build: ./DISLabSBWorker/
+    networks:
+      - network1
+  
+  worker3:
+    environment:
+      - RABBITMQ_HOST=rabbitmq
+    depends_on:
+      mongodb1:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    build: ./DISLabSBWorker/
+    networks:
+      - network1
+
+volumes:
+  mongodb1_data:
+  mongodb1_config:
+  mongodb2_data:
+  mongodb2_config:
+  mongodb3_data:
+  mongodb3_config:
+
+networks:
+  network1:
+    driver: bridge
+  cluster_network:
