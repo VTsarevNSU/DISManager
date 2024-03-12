@@ -20,6 +20,7 @@ public class RabbitConfiguration {
         CachingConnectionFactory cachingConnectionFactory = new CachingConnectionFactory("rabbitmq");
         cachingConnectionFactory.setUsername("user");
         cachingConnectionFactory.setPassword("password");
+
         return cachingConnectionFactory;
     }
 
@@ -37,7 +38,7 @@ public class RabbitConfiguration {
 
     @Bean
     public Queue workerQueue() {
-        return new Queue("worker_queue");
+        return QueueBuilder.durable("worker_queue").build();
     }
     @Bean
     public Queue managerQueue() {

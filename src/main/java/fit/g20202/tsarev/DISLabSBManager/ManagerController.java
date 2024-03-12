@@ -12,27 +12,23 @@ import org.springframework.amqp.rabbit.annotation.EnableRabbit;
 import org.springframework.amqp.rabbit.annotation.RabbitHandler;
 import org.springframework.amqp.rabbit.annotation.RabbitListener;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.mongodb.core.query.Criteria;
+import org.springframework.data.mongodb.core.query.Query;
 import org.springframework.web.bind.annotation.*;
 
 import java.io.IOException;
 import java.util.List;
 import java.util.concurrent.TimeoutException;
 
+import static java.lang.Thread.sleep;
+
 @RestController
-//@RabbitListener(queues = "queue1")
-//@EnableRabbit
 public class ManagerController {
 
     ManagerService service;
 
     @Autowired
     AmqpTemplate amqpTemplate;
-
-    /*@Autowired
-    Queue queue1;*/
-
-    /*@Autowired
-    Queue workerQueue;*/
 
     @Autowired
     ManagerController(ManagerService service){
@@ -45,19 +41,14 @@ public class ManagerController {
     ){
 
         List<TaskForWorkerDTO> tasks = service.processRequest(startCrackRequestDTO);
-        tasks.forEach(task -> {
-            amqpTemplate.convertAndSend("exchange", "workerKey", task);
-        });
 
-        // response to client: id of the request
+        for (int i = 1; i <= ManagerService.WORKERS_COUNT; i++){
+            amqpTemplate.convertAndSend("exchange", "workerKey", tasks.get(i - 1));
+        }
+
+        // response to client: id of the request after saving to DB
         return new StartCrackResponseToClientDTO(tasks.getFirst().requestId());
     }
-
-    /*@RabbitHandler
-    public void onMessage(String message) {
-        System.out.println("lmao");
-        System.out.println("received from queue1 : " + message);
-    }*/
 
     @PatchMapping("/internal/api/manager/hash/crack/request")
     public ResponseToWorkerDTO takeResultFromWorker(

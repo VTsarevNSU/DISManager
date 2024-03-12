@@ -11,7 +11,6 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestTemplate;
 
-import java.sql.Date;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
@@ -25,16 +24,16 @@ public class ManagerService {
     @Autowired
     private MongoTemplate mongoTemplate;
 
-    private final AtomicInteger lastRequestId;
-    public static final int WORKERS_COUNT = 3;//todo 3
+    private final AtomicInteger nextRequestId;
+    public static final int WORKERS_COUNT = 3;
     public static final int ALPHABET_SIZE = 36;
     private final Object mutex = new Object();
 
     ManagerService(){
-        lastRequestId = new AtomicInteger(0);
+        nextRequestId = new AtomicInteger(1);
     }
 
-    @Scheduled(fixedDelay = 500000)//todo
+    @Scheduled(fixedDelay = 5000)
     public void updateStatus(){
 
         synchronized (mutex) {
@@ -47,7 +46,8 @@ public class ManagerService {
 
             Criteria filterCriteria = Criteria.where("dueDate").lte(s);
             query.addCriteria(filterCriteria);
-            mongoTemplate.findAllAndRemove(query, Request.class);//todo fails
+            //mongoTemplate.findAllAndRemove(query, Request.class);//todo fails
+            mongoTemplate.findAndRemove(query, Request.class);
 
         }
 
@@ -55,15 +55,26 @@ public class ManagerService {
 
     public List<TaskForWorkerDTO> processRequest(StartCrackRequestDTO startCrackRequestDTO){
 
-        int requestIdATM = lastRequestId.addAndGet(1);
+        int requestIdATM;
 
         synchronized (mutex) {
-            Request newRequest = new Request(requestIdATM);
-            mongoTemplate.insert(newRequest);
-            Request request = mongoTemplate.findOne(
-                    Query.query(Criteria.where("requestId").is(requestIdATM)),
-                    Request.class
-            );
+            //Request newRequest = new Request(requestIdATM);
+            while (true){
+                requestIdATM = nextRequestId.get();
+
+                Request request = mongoTemplate.findOne(
+                        Query.query(Criteria.where("requestId").is(requestIdATM)),
+                        Request.class
+                );
+                if (request == null){
+                    Request newRequest = new Request(requestIdATM);
+                    mongoTemplate.insert(newRequest);
+                    break;
+                } else {
+                    nextRequestId.incrementAndGet();
+                }
+            }
+
         }
 
         String hash = startCrackRequestDTO.hash();
@@ -87,7 +98,6 @@ public class ManagerService {
         int endSymbolPos = -1;
 
         List<TaskForWorkerDTO> tasks = new ArrayList<>();
-
         for (int i = 1; i <= WORKERS_COUNT; i++){
 
             startSymbolPos = endSymbolPos + 1;
@@ -98,17 +108,25 @@ public class ManagerService {
             System.out.println();
 
             TaskForWorkerDTO newTask = new TaskForWorkerDTO(
-                    String.valueOf(requestIdATM), hash, String.valueOf(startSymbolPos), String.valueOf(endSymbolPos), startCrackRequestDTO.maxLength()
+                    String.valueOf(requestIdATM), hash, String.valueOf(startSymbolPos), String.valueOf(endSymbolPos), startCrackRequestDTO.maxLength(),
+                    String.valueOf(i)
             );
             tasks.add(newTask);
+
+            mongoTemplate.insert(newTask);
 
         }
 
         return tasks;
+
     }
 
     ResponseToWorkerDTO saveResult(ResultFromWorkerDTO resultFromWorker){
+
+        System.out.println("Manager got partial task");
+
         Integer requestId = Integer.parseInt(resultFromWorker.requestId());
+
         synchronized (mutex) {
 
             Request request = mongoTemplate.findOne(
@@ -116,20 +134,38 @@ public class ManagerService {
                     Request.class
             );
 
-            Query query = new Query();
-            query.addCriteria(Criteria.where("requestId").is(requestId));
-            Update update = new Update();
-            update.set("result", Stream.concat(request.result.stream(), resultFromWorker.result().stream()).toList());
+            if (request.partsLeft.contains(resultFromWorker.part())){
 
-            //update.set("dueDate", LocalDateTime.now().plusSeconds(60));
-            LocalDateTime ldt = LocalDateTime.now().plusSeconds(30);
-            DateTimeFormatter dtf = DateTimeFormatter.ISO_DATE_TIME;
-            String s = ldt.format(dtf); // "1980-01-01T00:00:00"
-            update.set("dueDate", s);
+                request.partsLeft.remove(resultFromWorker.part());
 
-            mongoTemplate.updateFirst(query, update, Request.class);
+                Query query = new Query();
+                query.addCriteria(Criteria.where("requestId").is(requestId));
+                Update update = new Update();
 
-            //System.out.println(request.dueDate);
+                update.set("result", Stream.concat(request.result.stream(), resultFromWorker.result().stream()).toList());
+                update.set("partsLeft", request.partsLeft);
+
+                if (request.partsLeft.isEmpty()){
+                    update.set("status", "READY");
+
+                    LocalDateTime ldt = LocalDateTime.now().plusSeconds(30);
+                    DateTimeFormatter dtf = DateTimeFormatter.ISO_DATE_TIME;
+                    String s = ldt.format(dtf); // "1980-01-01T00:00:00"
+                    update.set("dueDate", s);
+
+                    System.out.println("Manager got full task");
+                }
+
+                mongoTemplate.updateFirst(query, update, Request.class);
+
+                Query queryDelete = new Query();
+                query.addCriteria(Criteria.
+                        where("requestId").is(requestId).
+                        and("part").is(String.valueOf(resultFromWorker.part()))
+                );
+                mongoTemplate.findAndRemove(queryDelete, TaskForWorkerDTO.class);
+
+            }
 
         }
 
@@ -138,6 +174,7 @@ public class ManagerService {
 
     public ResultResponseToClientDTO createResponseToClient(String requestId) {
         synchronized (mutex){
+
             Request request = mongoTemplate.findOne(
                     Query.query(Criteria.where("requestId").is(Integer.parseInt(requestId))),
                     Request.class
@@ -147,7 +184,8 @@ public class ManagerService {
                 return new ResultResponseToClientDTO("ERROR", null);
             } else {
                 List<String> result = request.result;
-                if (result.isEmpty()) {
+                String status = request.status;
+                if (Objects.equals(status, "IN_PROGRESS")) {
                     return new ResultResponseToClientDTO("IN_PROGRESS", null);
                 } else {
                     return new ResultResponseToClientDTO("READY", result);
@@ -160,11 +198,18 @@ public class ManagerService {
         Integer requestId;
         List<String> result;
         LocalDateTime dueDate;
+        String status;
+        Set<Integer> partsLeft;
 
         Request(Integer requestId){
             this.requestId = requestId;
             result = new ArrayList<String>();
             dueDate = null;
+            status = "IN_PROGRESS";
+            partsLeft = new HashSet<Integer>();
+            for (int i = 1; i <= WORKERS_COUNT; i++){
+                partsLeft.add(i);
+            }
         }
     }
 
