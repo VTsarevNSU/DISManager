@@ -9,6 +9,8 @@ import org.springframework.data.mongodb.core.query.Update;
 import org.springframework.scheduling.annotation.EnableScheduling;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Isolation;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.client.RestTemplate;
 
 import java.time.LocalDateTime;
@@ -27,53 +29,46 @@ public class ManagerService {
     private final AtomicInteger nextRequestId;
     public static final int WORKERS_COUNT = 3;
     public static final int ALPHABET_SIZE = 36;
-    private final Object mutex = new Object();
 
     ManagerService(){
         nextRequestId = new AtomicInteger(1);
     }
 
     @Scheduled(fixedDelay = 5000)
+    @Transactional
     public void updateStatus(){
 
-        synchronized (mutex) {
+        Query query = new Query();
 
-            Query query = new Query();
+        LocalDateTime ldt = LocalDateTime.now();
+        DateTimeFormatter dtf = DateTimeFormatter.ISO_DATE_TIME;
+        String s = ldt.format(dtf); // "1980-01-01T00:00:00"
 
-            LocalDateTime ldt = LocalDateTime.now();
-            DateTimeFormatter dtf = DateTimeFormatter.ISO_DATE_TIME;
-            String s = ldt.format(dtf); // "1980-01-01T00:00:00"
-
-            Criteria filterCriteria = Criteria.where("dueDate").lte(s);
-            query.addCriteria(filterCriteria);
-            //mongoTemplate.findAllAndRemove(query, Request.class);//todo fails
-            mongoTemplate.findAndRemove(query, Request.class);
-
-        }
+        Criteria filterCriteria = Criteria.where("dueDate").lte(s);
+        query.addCriteria(filterCriteria);
+        mongoTemplate.findAndRemove(query, Request.class);
 
     }
 
+    @Transactional
     public List<TaskForWorkerDTO> processRequest(StartCrackRequestDTO startCrackRequestDTO){
 
         int requestIdATM;
 
-        synchronized (mutex) {
-            while (true){
-                requestIdATM = nextRequestId.get();
+        while (true){
+            requestIdATM = nextRequestId.get();
 
-                Request request = mongoTemplate.findOne(
-                        Query.query(Criteria.where("requestId").is(requestIdATM)),
-                        Request.class
-                );
-                if (request == null){
-                    Request newRequest = new Request(requestIdATM);
-                    mongoTemplate.insert(newRequest);
-                    break;
-                } else {
-                    nextRequestId.incrementAndGet();
-                }
+            Request request = mongoTemplate.findOne(
+                    Query.query(Criteria.where("requestId").is(requestIdATM)),
+                    Request.class
+            );
+            if (request == null){
+                Request newRequest = new Request(requestIdATM);
+                mongoTemplate.insert(newRequest);
+                break;
+            } else {
+                nextRequestId.incrementAndGet();
             }
-
         }
 
         String hash = startCrackRequestDTO.hash();
@@ -120,75 +115,71 @@ public class ManagerService {
 
     }
 
+    @Transactional
     ResponseToWorkerDTO saveResult(ResultFromWorkerDTO resultFromWorker){
 
         System.out.println("Manager got partial task");
 
         Integer requestId = Integer.parseInt(resultFromWorker.requestId());
 
-        synchronized (mutex) {
+        Request request = mongoTemplate.findOne(
+                Query.query(Criteria.where("requestId").is(requestId)),
+                Request.class
+        );
 
-            Request request = mongoTemplate.findOne(
-                    Query.query(Criteria.where("requestId").is(requestId)),
-                    Request.class
-            );
+        if (request.partsLeft.contains(resultFromWorker.part())){
 
-            if (request.partsLeft.contains(resultFromWorker.part())){
+            request.partsLeft.remove(resultFromWorker.part());
 
-                request.partsLeft.remove(resultFromWorker.part());
+            Query query = new Query();
+            query.addCriteria(Criteria.where("requestId").is(requestId));
+            Update update = new Update();
 
-                Query query = new Query();
-                query.addCriteria(Criteria.where("requestId").is(requestId));
-                Update update = new Update();
+            update.set("result", Stream.concat(request.result.stream(), resultFromWorker.result().stream()).toList());
+            update.set("partsLeft", request.partsLeft);
 
-                update.set("result", Stream.concat(request.result.stream(), resultFromWorker.result().stream()).toList());
-                update.set("partsLeft", request.partsLeft);
+            if (request.partsLeft.isEmpty()){
+                update.set("status", "READY");
 
-                if (request.partsLeft.isEmpty()){
-                    update.set("status", "READY");
+                LocalDateTime ldt = LocalDateTime.now().plusSeconds(30);
+                DateTimeFormatter dtf = DateTimeFormatter.ISO_DATE_TIME;
+                String s = ldt.format(dtf); // "1980-01-01T00:00:00"
+                update.set("dueDate", s);
 
-                    LocalDateTime ldt = LocalDateTime.now().plusSeconds(30);
-                    DateTimeFormatter dtf = DateTimeFormatter.ISO_DATE_TIME;
-                    String s = ldt.format(dtf); // "1980-01-01T00:00:00"
-                    update.set("dueDate", s);
-
-                    System.out.println("Manager got full task");
-                }
-
-                mongoTemplate.updateFirst(query, update, Request.class);
-
-                Query queryDelete = new Query();
-                query.addCriteria(Criteria.
-                        where("requestId").is(requestId).
-                        and("part").is(String.valueOf(resultFromWorker.part()))
-                );
-                mongoTemplate.findAndRemove(queryDelete, TaskForWorkerDTO.class);
-
+                System.out.println("Manager got full task");
             }
+
+            mongoTemplate.updateFirst(query, update, Request.class);
+
+            Query queryDelete = new Query();
+            query.addCriteria(Criteria.
+                    where("requestId").is(requestId).
+                    and("part").is(String.valueOf(resultFromWorker.part()))
+            );
+            mongoTemplate.findAndRemove(queryDelete, TaskForWorkerDTO.class);
 
         }
 
         return new ResponseToWorkerDTO();
     }
 
+    @Transactional//(isolation = Isolation.READ_COMMITTED)//todo see baeldung
     public ResultResponseToClientDTO createResponseToClient(String requestId) {
-        synchronized (mutex){
 
-            Request request = mongoTemplate.findOne(
-                    Query.query(Criteria.where("requestId").is(Integer.parseInt(requestId))),
-                    Request.class
-            );
+        Request request = mongoTemplate.findOne(
+                Query.query(Criteria.where("requestId").is(Integer.parseInt(requestId))),
+                Request.class
+        );
 
-            if (request == null) {
-                return new ResultResponseToClientDTO("ERROR", null);
+        if (request == null) {
+            return new ResultResponseToClientDTO("ERROR", null);
+        } else {
+            List<String> result = request.result;
+            String status = request.status;
+            if (Objects.equals(status, "IN_PROGRESS")) {
+                return new ResultResponseToClientDTO("IN_PROGRESS", null);
             } else {
-                List<String> result = request.result;
-                String status = request.status;
-                if (Objects.equals(status, "IN_PROGRESS")) {
-                    return new ResultResponseToClientDTO("IN_PROGRESS", null);
-                } else {
-                    return new ResultResponseToClientDTO("READY", result);
-                }
+                return new ResultResponseToClientDTO("READY", result);
             }
         }
     }
